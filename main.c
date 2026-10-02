@@ -12,8 +12,16 @@ int main(void)
     }; 
  
     const char *item_names[10] = { 
-        "пусто", "дерево", "камень", "семена", "лопата", 
-        "грабли", "тяпка", "телега", "лейка", "корзина" 
+        "пусто", 
+        "дерево", 
+        "камень", 
+        "семена", 
+        "лопата", 
+        "грабли", 
+        "тяпка", 
+        "телега", 
+        "лейка", 
+        "корзина" 
     }; 
  
     int choice; 
@@ -248,6 +256,46 @@ int main(void)
                         max_count 
                     ); 
                 } 
+ 
+                break; 
+            } 
+ 
+            case 7: 
+            { 
+                int item_id; 
+                int cleared_slots = 0; 
+ 
+                printf("Введите ID предмета для удаления: "); 
+ 
+                if (scanf("%d", &item_id) != 1) 
+                { 
+                    printf("Ошибка: нужно ввести число.\n"); 
+ 
+                    while (getchar() != '\n') 
+                        ; 
+ 
+                    break; 
+                } 
+ 
+                if (item_id < 1 || item_id > 9) 
+                { 
+                    printf("Ошибка: неверный ID предмета.\n"); 
+                    break; 
+                } 
+ 
+                for (int i = 0; i < INVENTORY_SIZE; i++) 
+                { 
+                    if (inventory[i] == item_id) 
+                    { 
+                        inventory[i] = 0; 
+                        cleared_slots++; 
+                    } 
+                } 
+ 
+                printf( 
+                    "Очищено слотов: %d\n", 
+                    cleared_slots 
+                ); 
  
                 break; 
             } 
