@@ -200,6 +200,58 @@ int main(void)
                 break; 
             } 
  
+            case 6: 
+            { 
+                int favorite_id = 0; 
+                int max_count = 0; 
+ 
+                for (int i = 0; i < INVENTORY_SIZE; i++) 
+                { 
+                    if (inventory[i] == 0) 
+                        continue; 
+ 
+                    int current_count = 0; 
+ 
+                    for (int j = 0; j < INVENTORY_SIZE; j++) 
+                    { 
+                        if (inventory[j] == inventory[i]) 
+                            current_count++; 
+                    } 
+ 
+                    if (current_count > max_count) 
+                    { 
+                        max_count = current_count; 
+                        favorite_id = inventory[i]; 
+                    } 
+                } 
+ 
+                if (favorite_id == 0) 
+                { 
+                    printf("В инвентаре нет предметов.\n"); 
+                } 
+                else if (max_count == 1) 
+                { 
+                    printf( 
+                        "Все предметы встречаются по одному разу.\n" 
+                    ); 
+                } 
+                else 
+                { 
+                    printf( 
+                        "Любимый ресурс: %s (ID %d)\n", 
+                        item_names[favorite_id], 
+                        favorite_id 
+                    ); 
+ 
+                    printf( 
+                        "Количество: %d\n", 
+                        max_count 
+                    ); 
+                } 
+ 
+                break; 
+            } 
+ 
             default: 
                 printf("Ошибка: такого пункта меню нет.\n"); 
         } 
