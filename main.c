@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <windows.h>
 #include <wchar.h>
 #include <errno.h>
@@ -9,6 +10,9 @@
 #define ITEM_COUNT 10
 #define MAX_NAME_LEN 64
 #define MAX_INPUT_LEN 256
+#define MAX_ARTICLE_LEN 512
+#define SEARCH_FILE "input.txt"
+#define OUTPUT_FILE "output.txt"
 
 int read_text(char *text, int size)
 {
@@ -148,6 +152,145 @@ void write_diary(const char *farmer_name,
     printf("Состояние фермы записано в diary.txt\n");
 }
 
+/* Возвращает 1, если в строке line найдено слово word
+   без учёта регистра первой буквы. */
+int contains_word_ci(const char *line, const char *word)
+{
+    size_t word_len = strlen(word);
+
+    if (word_len == 0)
+        return 0;
+
+    for (const char *p = line; *p != '\0'; p++)
+    {
+        /* Проверяем совпадение слова, начиная с позиции p */
+        size_t i = 0;
+        while (i < word_len &&
+               p[i] != '\0' &&
+               tolower((unsigned char)p[i]) ==
+               tolower((unsigned char)word[i]))
+        {
+            i++;
+        }
+
+        if (i == word_len)
+            return 1;
+    }
+
+    return 0;
+}
+
+/* Копирует строку src в dest, оборачивая первое вхождение word в [ ]. */
+void wrap_word_in_brackets(const char *src, const char *word,
+                           char *dest, int dest_size)
+{
+    size_t word_len = strlen(word);
+    int out = 0;
+
+    if (word_len == 0 || dest_size <= 0)
+    {
+        dest[0] = '\0';
+        return;
+    }
+
+    for (size_t i = 0; src[i] != '\0' && out < dest_size - 1; )
+    {
+        int match = 1;
+
+        for (size_t j = 0; j < word_len; j++)
+        {
+            if (src[i + j] == '\0' ||
+                tolower((unsigned char)src[i + j]) !=
+                tolower((unsigned char)word[j]))
+            {
+                match = 0;
+                break;
+            }
+        }
+
+        if (match)
+        {
+            if (out < dest_size - 1) dest[out++] = '[';
+            for (size_t j = 0; j < word_len && out < dest_size - 1; j++)
+                dest[out++] = src[i + j];
+            if (out < dest_size - 1) dest[out++] = ']';
+            i += word_len;
+        }
+        else
+        {
+            dest[out++] = src[i++];
+        }
+    }
+
+    dest[out] = '\0';
+}
+
+/* Вариант 3: поисковик по Энциклопедии фермера. */
+void process_encyclopedia(const char *search_word)
+{
+    FILE *in = fopen(SEARCH_FILE, "r");
+
+    if (in == NULL)
+    {
+        printf("Ошибка: не удалось открыть %s.\n", SEARCH_FILE);
+        return;
+    }
+
+    FILE *out = fopen(OUTPUT_FILE, "w");
+
+    if (out == NULL)
+    {
+        printf("Ошибка: не удалось открыть %s для записи.\n", OUTPUT_FILE);
+        fclose(in);
+        return;
+    }
+
+    char line[MAX_ARTICLE_LEN];
+    int line_number = 0;
+    int found_count = 0;
+
+    printf("\n===== РЕЗУЛЬТАТЫ ПОИСКА =====\n");
+
+    while (fgets(line, sizeof(line), in) != NULL)
+    {
+        line_number++;
+
+        size_t len = strlen(line);
+        while (len > 0 &&
+               (line[len - 1] == '\n' || line[len - 1] == '\r'))
+        {
+            line[--len] = '\0';
+        }
+
+        if (!contains_word_ci(line, search_word))
+            continue;
+
+        char wrapped[MAX_ARTICLE_LEN];
+        wrap_word_in_brackets(line, search_word,
+                              wrapped, sizeof(wrapped));
+
+        printf("Статья %d: %s\n", line_number, wrapped);
+        fprintf(out, "Статья %d: %s\n", line_number, wrapped);
+
+        found_count++;
+    }
+
+    if (found_count == 0)
+    {
+        printf("Статей с таким словом не найдено.\n");
+        fprintf(out, "Статей с таким словом не найдено.\n");
+    }
+    else
+    {
+        printf("Всего найдено статей: %d\n", found_count);
+    }
+
+    fclose(in);
+    fclose(out);
+
+    printf("Результат сохранён в %s\n", OUTPUT_FILE);
+}
+
 int main(void)
 {
     SetConsoleCP(CP_UTF8);
@@ -195,6 +338,7 @@ int main(void)
         printf("6 - Любимый ресурс\n");
         printf("7 - Поиск предмета по названию\n");
         printf("8 - Записать состояние в дневник\n");
+        printf("9 - Расшифровать старые записи (Энциклопедия)\n");
         printf("10 - Выбросить предмет по ID\n");
 
         if (!read_number("Выберите действие: ", &choice))
@@ -405,6 +549,23 @@ int main(void)
                 write_diary(farmer_name, current_day, current_hour,
                             inventory, item_names);
                 break;
+
+            case 9:
+            {
+                char search_word[MAX_NAME_LEN];
+
+                printf("Введите поисковое слово: ");
+
+                if (!read_text(search_word, sizeof(search_word)) ||
+                    search_word[0] == '\0')
+                {
+                    printf("Ошибка: пустое поисковое слово.\n");
+                    break;
+                }
+
+                process_encyclopedia(search_word);
+                break;
+            }
 
             case 10:
             {
