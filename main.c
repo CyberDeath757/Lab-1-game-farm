@@ -117,6 +117,37 @@ void load_items(char item_names[ITEM_COUNT][MAX_NAME_LEN])
         printf("Предупреждение: каталог пуст или имеет неверный формат.\n");
 }
 
+void write_diary(const char *farmer_name,
+                 int current_day,
+                 int current_hour,
+                 const int inventory[INVENTORY_SIZE],
+                 char item_names[ITEM_COUNT][MAX_NAME_LEN])
+{
+    FILE *file = fopen("diary.txt", "a");
+
+    if (file == NULL)
+    {
+        printf("Ошибка: не удалось открыть diary.txt для записи.\n");
+        return;
+    }
+
+    fprintf(file, "===== Дневник фермера =====\n");
+    fprintf(file, "Фермер: %s\n", farmer_name);
+    fprintf(file, "День %d, %02d:00\n", current_day, current_hour);
+    fprintf(file, "Инвентарь:\n");
+
+    for (int i = 0; i < INVENTORY_SIZE; i++)
+    {
+        fprintf(file, "  Слот %d: ID %d (%s)\n",
+                i, inventory[i], item_names[inventory[i]]);
+    }
+
+    fprintf(file, "\n");
+    fclose(file);
+
+    printf("Состояние фермы записано в diary.txt\n");
+}
+
 int main(void)
 {
     SetConsoleCP(CP_UTF8);
@@ -163,6 +194,7 @@ int main(void)
         printf("5 - Выбросить предмет\n");
         printf("6 - Любимый ресурс\n");
         printf("7 - Поиск предмета по названию\n");
+        printf("8 - Записать состояние в дневник\n");
         printf("10 - Выбросить предмет по ID\n");
 
         if (!read_number("Выберите действие: ", &choice))
@@ -368,6 +400,11 @@ int main(void)
                 printf("\n");
                 break;
             }
+
+            case 8:
+                write_diary(farmer_name, current_day, current_hour,
+                            inventory, item_names);
+                break;
 
             case 10:
             {
