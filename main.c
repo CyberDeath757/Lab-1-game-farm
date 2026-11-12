@@ -339,6 +339,8 @@ static void free_map(TowerMap *map)
 
     free(map->grid);
     map->grid = NULL;
+    map->width = 0;
+    map->height = 0;
 }
 
 static void free_runes(RuneLayer *runes, int height)
@@ -401,8 +403,8 @@ static int alloc_runes(RuneLayer *runes, int height, int width)
 
 
 /* Генерация этажа башни.
- * D находится под героем на стартовой клетке.
- * U всегда размещается на свободной клетке этажа.
+ * D - находится под героем на стартовой клетке.
+ * U - всегда размещается на свободной клетке этажа.
  */
 static int generate_floor(TowerMap *map, RuneLayer *runes, int floor_number)
 {
@@ -535,10 +537,45 @@ static int is_walkable(const TowerMap *map, int x, int y)
 }
 
 
-/* Базовое перемещение по башне.
- * 0 — ход невозможен, 1 — обычный шаг, 2 — лестница вверх.
- */
-static int try_move(TowerMap *map, int dx, int dy)
+/* Выбирает случайную свободную клетку для телепортации. */
+static int teleport_to_empty_cell(TowerMap *map, RuneLayer *runes)
+{
+    int available = 0;
+
+    for (int y = 1; y < map->height - 1; y++)
+        for (int x = 1; x < map->width - 1; x++)
+            if (map->grid[y][x] == FLOOR && !runes->rune[y][x])
+                available++;
+
+    if (available == 0)
+        return 0;
+
+    int selected = rand() % available;
+
+    for (int y = 1; y < map->height - 1; y++)
+    {
+        for (int x = 1; x < map->width - 1; x++)
+        {
+            if (map->grid[y][x] == FLOOR && !runes->rune[y][x])
+            {
+                if (selected == 0)
+                {
+                    map->hero_x = x;
+                    map->hero_y = y;
+                    map->grid[y][x] = HERO;
+                    printf("Руна телепортировала вас в другое место башни!\n");
+                    return 1;
+                }
+                selected--;
+            }
+        }
+    }
+
+    return 0;
+}
+
+/* При наступании на ^ руна исчезает и переносит героя на случайный пол. */
+static int try_move(TowerMap *map, RuneLayer *runes, int dx, int dy)
 {
     int nx = map->hero_x + dx;
     int ny = map->hero_y + dy;
@@ -549,9 +586,8 @@ static int try_move(TowerMap *map, int dx, int dy)
         return 0;
     }
 
-    char target = map->grid[ny][nx];
+    int stepped_on_rune = runes->rune[ny][nx];
 
-    /* Освобождаем старую позицию, сохраняя D под стартовой клеткой. */
     if (map->hero_x == map->stairs_down_x &&
         map->hero_y == map->stairs_down_y)
         map->grid[map->hero_y][map->hero_x] = STAIRS_DOWN;
@@ -561,48 +597,26 @@ static int try_move(TowerMap *map, int dx, int dy)
     map->hero_x = nx;
     map->hero_y = ny;
 
-    if (target == STAIRS_UP)
+    if (map->grid[ny][nx] == STAIRS_UP)
     {
         map->grid[ny][nx] = HERO;
         return 2;
     }
 
+    if (stepped_on_rune)
+    {
+        runes->rune[ny][nx] = 0;
+        map->grid[ny][nx] = FLOOR;
+        if (!teleport_to_empty_cell(map, runes))
+        {
+            map->grid[ny][nx] = HERO;
+            printf("Руна погасла, но свободного места для телепортации нет.\n");
+        }
+        return 1;
+    }
+
     map->grid[ny][nx] = HERO;
     return 1;
-}
-
-static int ask_direction(int *dx, int *dy)
-{
-    char input[MAX_INPUT_LEN];
-    printf("Направление (W/A/S/D, Q — выход): ");
-
-    if (!read_text(input, sizeof(input)))
-        return 0;
-
-    char c = 0;
-    for (int i = 0; input[i] != '\0'; i++)
-    {
-        if (input[i] != ' ' && input[i] != '\t')
-        {
-            c = (char)tolower((unsigned char)input[i]);
-            break;
-        }
-    }
-
-    *dx = 0;
-    *dy = 0;
-
-    switch (c)
-    {
-        case 'w': *dy = -1; return 1;
-        case 's': *dy = 1; return 1;
-        case 'a': *dx = -1; return 1;
-        case 'd': *dx = 1; return 1;
-        case 'q': return 0;
-        default:
-            printf("Неизвестное направление. Используйте W/A/S/D или Q.\n");
-            return 0;
-    }
 }
 
 /* MAIN */
