@@ -15,7 +15,7 @@
 #define SEARCH_FILE "input.txt"
 #define OUTPUT_FILE "output.txt"
 
-/*  Константы варианта 7: "Башня и руны" */
+/*  Константы варианта 7: "Башня и руны"  */
 #define MAP_MIN_SIZE 5
 #define MAP_MAX_SIZE 30
 #define WALL '#'
@@ -99,7 +99,7 @@ int read_number(const char *prompt, int *number)
     return 1;
 }
 
-/*  Загрузка списка предметов  */
+/*  Загрузка списка предметов */
 
 void load_items(char item_names[ITEM_COUNT][MAX_NAME_LEN])
 {
@@ -171,7 +171,7 @@ void write_diary(const char *farmer_name,
     printf("Состояние фермы записано в diary.txt\n");
 }
 
-/*  Энциклопедия  */
+/* Энциклопедия */
 
 int contains_word_ci(const char *line, const char *word)
 {
@@ -308,7 +308,7 @@ void process_encyclopedia(const char *search_word)
 }
 
 
-/* ВАРИАНТ 7: БАШНЯ — сСтруктура и управление памятью */
+/* ВАРИАНТ 7: БАШНЯ — Структура и управление памятью */ */
 
 typedef struct
 {
@@ -399,7 +399,113 @@ static int alloc_runes(RuneLayer *runes, int height, int width)
     return 1;
 }
 
-/* MAIN - зарезервированное имя главной функции программы */
+
+/* Генерация этажа башни:
+ * D - находится под героем на стартовой клетке.
+ * U - всегда размещается на свободной клетке этажа.
+ */
+static int generate_floor(TowerMap *map, RuneLayer *runes, int floor_number)
+{
+    int height = MAP_MIN_SIZE + rand() % (MAP_MAX_SIZE - MAP_MIN_SIZE + 1);
+    int width = MAP_MIN_SIZE + rand() % (MAP_MAX_SIZE - MAP_MIN_SIZE + 1);
+
+    if (!alloc_map(map, height, width))
+        return 0;
+
+    if (!alloc_runes(runes, height, width))
+    {
+        free_map(map);
+        return 0;
+    }
+
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            if (y == 0 || y == height - 1 || x == 0 || x == width - 1)
+                map->grid[y][x] = WALL;
+            else
+            {
+                int roll = rand() % 100;
+                if (roll < TREE_CHANCE)
+                    map->grid[y][x] = TREE;
+                else if (roll < TREE_CHANCE + ROCK_CHANCE)
+                    map->grid[y][x] = ROCK;
+                else
+                    map->grid[y][x] = FLOOR;
+            }
+        }
+    }
+
+    /* Стартовая клетка героя — лестница вниз D под персонажем. */
+    int placed = 0;
+    for (int attempt = 0; attempt < 1000 && !placed; attempt++)
+    {
+        int x = 1 + rand() % (width - 2);
+        int y = 1 + rand() % (height - 2);
+        if (map->grid[y][x] == FLOOR)
+        {
+            map->hero_x = x;
+            map->hero_y = y;
+            map->stairs_down_x = x;
+            map->stairs_down_y = y;
+            map->grid[y][x] = HERO;
+            placed = 1;
+        }
+    }
+
+    if (!placed)
+    {
+        map->hero_x = width / 2;
+        map->hero_y = height / 2;
+        map->stairs_down_x = map->hero_x;
+        map->stairs_down_y = map->hero_y;
+        map->grid[map->hero_y][map->hero_x] = HERO;
+    }
+
+    /* Лестница вверх U — минимум одна на каждом этаже. */
+    map->stairs_up_x = -1;
+    map->stairs_up_y = -1;
+
+    for (int attempt = 0; attempt < 2000 && map->stairs_up_x == -1; attempt++)
+    {
+        int x = 1 + rand() % (width - 2);
+        int y = 1 + rand() % (height - 2);
+        if (map->grid[y][x] == FLOOR)
+        {
+            map->stairs_up_x = x;
+            map->stairs_up_y = y;
+            map->grid[y][x] = STAIRS_UP;
+        }
+    }
+
+    if (map->stairs_up_x == -1)
+    {
+        for (int y = 1; y < height - 1 && map->stairs_up_x == -1; y++)
+            for (int x = 1; x < width - 1 && map->stairs_up_x == -1; x++)
+                if (map->grid[y][x] == FLOOR)
+                {
+                    map->stairs_up_x = x;
+                    map->stairs_up_y = y;
+                    map->grid[y][x] = STAIRS_UP;
+                }
+    }
+
+    /* Руны размещаются только на обычных свободных клетках. */
+    for (int y = 1; y < height - 1; y++)
+    {
+        for (int x = 1; x < width - 1; x++)
+        {
+            if (map->grid[y][x] == FLOOR && rand() % 100 < RUNE_CHANCE)
+                runes->rune[y][x] = 1;
+        }
+    }
+
+    map->floor_number = floor_number;
+    return 1;
+}
+
+/* MAIN */
 
 int main(void)
 {
