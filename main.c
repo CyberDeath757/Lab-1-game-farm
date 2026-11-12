@@ -15,7 +15,7 @@
 #define SEARCH_FILE "input.txt"
 #define OUTPUT_FILE "output.txt"
 
-/*  Константы варианта 7: "Башня и руны"  */
+/* Константы варианта 7: "Башня и руны" */
 #define MAP_MIN_SIZE 5
 #define MAP_MAX_SIZE 30
 #define WALL '#'
@@ -29,7 +29,7 @@
 #define ROCK_CHANCE 10
 #define RUNE_CHANCE 8
 
-/*  Ввод  */
+/* Ввод */
 
 int read_text(char *text, int size)
 {
@@ -99,7 +99,7 @@ int read_number(const char *prompt, int *number)
     return 1;
 }
 
-/*  Загрузка списка предметов */
+/* Загрузка списка предметов */
 
 void load_items(char item_names[ITEM_COUNT][MAX_NAME_LEN])
 {
@@ -308,7 +308,7 @@ void process_encyclopedia(const char *search_word)
 }
 
 
-/* ВАРИАНТ 7: БАШНЯ — Структура и управление памятью */ */
+/* ВАРИАНТ 7: БАШНЯ — Структура и управление памятью */
 
 typedef struct
 {
@@ -400,9 +400,9 @@ static int alloc_runes(RuneLayer *runes, int height, int width)
 }
 
 
-/* Генерация этажа башни:
- * D - находится под героем на стартовой клетке.
- * U - всегда размещается на свободной клетке этажа.
+/* Генерация этажа башни.
+ * D находится под героем на стартовой клетке.
+ * U всегда размещается на свободной клетке этажа.
  */
 static int generate_floor(TowerMap *map, RuneLayer *runes, int floor_number)
 {
@@ -503,6 +503,106 @@ static int generate_floor(TowerMap *map, RuneLayer *runes, int floor_number)
 
     map->floor_number = floor_number;
     return 1;
+}
+
+
+/* Отображение текущего этажа. Активные руны обозначаются символом ^. */
+static void render_map(const TowerMap *map, const RuneLayer *runes)
+{
+    printf("\n===== БАШНЯ: ЭТАЖ %d =====\n", map->floor_number);
+    printf("W/A/S/D — движение, Q — домой (только на D)\n\n");
+
+    for (int y = 0; y < map->height; y++)
+    {
+        for (int x = 0; x < map->width; x++)
+        {
+            if (runes->rune[y][x])
+                putchar('^');
+            else
+                putchar(map->grid[y][x]);
+        }
+        putchar('\n');
+    }
+}
+
+static int is_walkable(const TowerMap *map, int x, int y)
+{
+    if (x < 0 || x >= map->width || y < 0 || y >= map->height)
+        return 0;
+
+    char cell = map->grid[y][x];
+    return cell != WALL && cell != TREE && cell != ROCK;
+}
+
+
+/* Базовое перемещение по башне.
+ * 0 — ход невозможен, 1 — обычный шаг, 2 — лестница вверх.
+ */
+static int try_move(TowerMap *map, int dx, int dy)
+{
+    int nx = map->hero_x + dx;
+    int ny = map->hero_y + dy;
+
+    if (!is_walkable(map, nx, ny))
+    {
+        printf("Туда нельзя — стена или препятствие.\n");
+        return 0;
+    }
+
+    char target = map->grid[ny][nx];
+
+    /* Освобождаем старую позицию, сохраняя D под стартовой клеткой. */
+    if (map->hero_x == map->stairs_down_x &&
+        map->hero_y == map->stairs_down_y)
+        map->grid[map->hero_y][map->hero_x] = STAIRS_DOWN;
+    else
+        map->grid[map->hero_y][map->hero_x] = FLOOR;
+
+    map->hero_x = nx;
+    map->hero_y = ny;
+
+    if (target == STAIRS_UP)
+    {
+        map->grid[ny][nx] = HERO;
+        return 2;
+    }
+
+    map->grid[ny][nx] = HERO;
+    return 1;
+}
+
+static int ask_direction(int *dx, int *dy)
+{
+    char input[MAX_INPUT_LEN];
+    printf("Направление (W/A/S/D, Q — выход): ");
+
+    if (!read_text(input, sizeof(input)))
+        return 0;
+
+    char c = 0;
+    for (int i = 0; input[i] != '\0'; i++)
+    {
+        if (input[i] != ' ' && input[i] != '\t')
+        {
+            c = (char)tolower((unsigned char)input[i]);
+            break;
+        }
+    }
+
+    *dx = 0;
+    *dy = 0;
+
+    switch (c)
+    {
+        case 'w': *dy = -1; return 1;
+        case 's': *dy = 1; return 1;
+        case 'a': *dx = -1; return 1;
+        case 'd': *dx = 1; return 1;
+        case 'q': return 0;
+        default:
+            printf("Неизвестное направление. Используйте W/A/S/D или Q.\n");
+            return 0;
+    }
 }
 
 /* MAIN */
