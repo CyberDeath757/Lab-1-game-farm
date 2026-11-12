@@ -339,8 +339,6 @@ static void free_map(TowerMap *map)
 
     free(map->grid);
     map->grid = NULL;
-    map->width = 0;
-    map->height = 0;
 }
 
 static void free_runes(RuneLayer *runes, int height)
@@ -619,6 +617,99 @@ static int try_move(TowerMap *map, RuneLayer *runes, int dx, int dy)
     return 1;
 }
 
+/* Спросить направление у пользователя.
+ * Возвращает: 0 — выход/некорректно, 1 — dx/dy заданы.
+ */
+static int ask_direction(int *dx, int *dy)
+{
+    char input[MAX_INPUT_LEN];
+    printf("Направление (W/A/S/D, Q — выход): ");
+    if (!read_text(input, sizeof(input)))
+        return 0;
+
+    /* первый непробельный символ */
+    char c = 0;
+    for (int i = 0; input[i] != '\0'; i++)
+    {
+        if (input[i] != ' ' && input[i] != '\t')
+        {
+            c = (char)tolower((unsigned char)input[i]);
+            break;
+        }
+    }
+
+    *dx = 0;
+    *dy = 0;
+    switch (c)
+    {
+        case 'w': *dy = -1; return 1;
+        case 's': *dy = 1;  return 1;
+        case 'a': *dx = -1; return 1;
+        case 'd': *dx = 1;  return 1;
+        case 'q': return 0;
+        default:
+            printf("Неизвестное направление. Используйте W/A/S/D или Q.\n");
+            return 0;
+    }
+}
+
+
+
+/* Главный цикл башни. Возвращает 1 после успешного выхода домой. */
+static int run_tower_adventure(int start_floor)
+{
+    TowerMap map = {0};
+    RuneLayer runes = {0};
+    int floor_number = start_floor;
+
+    while (1)
+    {
+        free_map(&map);
+        free_runes(&runes, map.height);
+
+        if (!generate_floor(&map, &runes, floor_number))
+        {
+            printf("Не удалось выделить память для этажа башни.\n");
+            free_map(&map);
+            free_runes(&runes, map.height);
+            return 1;
+        }
+
+        /* Новый этаж создаётся с D под героем. Q доступна на этой клетке. */
+        while (1)
+        {
+            render_map(&map, &runes);
+
+            int dx = 0;
+            int dy = 0;
+
+            if (!ask_direction(&dx, &dy))
+            {
+                if (map.hero_x == map.stairs_down_x &&
+                    map.hero_y == map.stairs_down_y)
+                {
+                    printf("Вы вышли из башни и вернулись домой!\n");
+                    free_map(&map);
+                    free_runes(&runes, map.height);
+                    return 1;
+                }
+
+                printf("Выход домой возможен только на лестнице вниз D.\n");
+                continue;
+            }
+
+            int result = try_move(&map, &runes, dx, dy);
+
+            if (result == 2)
+            {
+                printf("Вы поднялись по лестнице на следующий этаж...\n");
+                floor_number++;
+                break;
+            }
+        }
+    }
+}
+
 /* MAIN */
 
 int main(void)
@@ -672,6 +763,7 @@ int main(void)
         printf("8 - Записать состояние в дневник\n");
         printf("9 - Расшифровать старые записи (Энциклопедия)\n");
         printf("10 - Выбросить предмет по ID\n");
+        printf("11 - Отправиться в приключение (Башня)\n");
 
         if (!read_number("Выберите действие: ", &choice))
         {
@@ -928,6 +1020,12 @@ int main(void)
                 printf("Очищено слотов: %d\n", cleared_slots);
                 break;
             }
+
+            case 11:
+                printf("\nВы входите в башню...\n");
+                run_tower_adventure(1);
+                printf("Вы вернулись на ферму.\n");
+                break;
 
             default:
                 printf("Ошибка: такого пункта меню нет.\n");
