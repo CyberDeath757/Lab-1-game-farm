@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <wchar.h>
 #include <errno.h>
+#include <time.h>
 
 #define INVENTORY_SIZE 10
 #define ITEM_COUNT 10
@@ -13,6 +14,22 @@
 #define MAX_ARTICLE_LEN 512
 #define SEARCH_FILE "input.txt"
 #define OUTPUT_FILE "output.txt"
+
+/*  Константы варианта 7: "Башня и руны" */
+#define MAP_MIN_SIZE 5
+#define MAP_MAX_SIZE 30
+#define WALL '#'
+#define FLOOR '.'
+#define HERO '@'
+#define STAIRS_DOWN 'D'
+#define STAIRS_UP 'U'
+#define TREE 'T'
+#define ROCK 'R'
+#define TREE_CHANCE 15
+#define ROCK_CHANCE 10
+#define RUNE_CHANCE 8
+
+/*  Ввод  */
 
 int read_text(char *text, int size)
 {
@@ -81,6 +98,8 @@ int read_number(const char *prompt, int *number)
     *number = (int)value;
     return 1;
 }
+
+/*  Загрузка списка предметов  */
 
 void load_items(char item_names[ITEM_COUNT][MAX_NAME_LEN])
 {
@@ -152,8 +171,8 @@ void write_diary(const char *farmer_name,
     printf("Состояние фермы записано в diary.txt\n");
 }
 
-/* Возвращает 1, если в строке line найдено слово word
-   без учёта регистра первой буквы. */
+/*  Энциклопедия  */
+
 int contains_word_ci(const char *line, const char *word)
 {
     size_t word_len = strlen(word);
@@ -163,7 +182,6 @@ int contains_word_ci(const char *line, const char *word)
 
     for (const char *p = line; *p != '\0'; p++)
     {
-        /* Проверяем совпадение слова, начиная с позиции p */
         size_t i = 0;
         while (i < word_len &&
                p[i] != '\0' &&
@@ -180,7 +198,6 @@ int contains_word_ci(const char *line, const char *word)
     return 0;
 }
 
-/* Копирует строку src в dest, оборачивая первое вхождение word в [ ]. */
 void wrap_word_in_brackets(const char *src, const char *word,
                            char *dest, int dest_size)
 {
@@ -225,7 +242,6 @@ void wrap_word_in_brackets(const char *src, const char *word,
     dest[out] = '\0';
 }
 
-/* Вариант 3: поисковик по Энциклопедии фермера. */
 void process_encyclopedia(const char *search_word)
 {
     FILE *in = fopen(SEARCH_FILE, "r");
@@ -291,11 +307,107 @@ void process_encyclopedia(const char *search_word)
     printf("Результат сохранён в %s\n", OUTPUT_FILE);
 }
 
+
+/* ВАРИАНТ 7: БАШНЯ — сСтруктура и управление памятью */
+
+typedef struct
+{
+    char **grid;
+    int width;
+    int height;
+    int hero_x;
+    int hero_y;
+    int stairs_down_x;
+    int stairs_down_y;
+    int stairs_up_x;
+    int stairs_up_y;
+    int floor_number;
+} TowerMap;
+
+typedef struct
+{
+    int **rune;
+} RuneLayer;
+
+static void free_map(TowerMap *map)
+{
+    if (map == NULL || map->grid == NULL)
+        return;
+
+    for (int y = 0; y < map->height; y++)
+        free(map->grid[y]);
+
+    free(map->grid);
+    map->grid = NULL;
+}
+
+static void free_runes(RuneLayer *runes, int height)
+{
+    if (runes == NULL || runes->rune == NULL)
+        return;
+
+    for (int y = 0; y < height; y++)
+        free(runes->rune[y]);
+
+    free(runes->rune);
+    runes->rune = NULL;
+}
+
+static int alloc_map(TowerMap *map, int height, int width)
+{
+    map->grid = (char **)malloc(height * sizeof(char *));
+    if (map->grid == NULL)
+        return 0;
+
+    for (int y = 0; y < height; y++)
+    {
+        map->grid[y] = (char *)malloc(width * sizeof(char));
+        if (map->grid[y] == NULL)
+        {
+            for (int i = 0; i < y; i++)
+                free(map->grid[i]);
+            free(map->grid);
+            map->grid = NULL;
+            return 0;
+        }
+    }
+
+    map->height = height;
+    map->width = width;
+    return 1;
+}
+
+static int alloc_runes(RuneLayer *runes, int height, int width)
+{
+    runes->rune = (int **)malloc(height * sizeof(int *));
+    if (runes->rune == NULL)
+        return 0;
+
+    for (int y = 0; y < height; y++)
+    {
+        runes->rune[y] = (int *)calloc(width, sizeof(int));
+        if (runes->rune[y] == NULL)
+        {
+            for (int i = 0; i < y; i++)
+                free(runes->rune[i]);
+            free(runes->rune);
+            runes->rune = NULL;
+            return 0;
+        }
+    }
+
+    return 1;
+}
+
+/* MAIN - зарезервированное имя главной функции программы */
+
 int main(void)
 {
     SetConsoleCP(CP_UTF8);
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleTitleW(L"Ферма");
+
+    srand((unsigned)time(NULL));
 
     int current_day = 1;
     int current_hour = 8;
