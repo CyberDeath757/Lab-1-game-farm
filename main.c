@@ -44,6 +44,10 @@
 #define MENU_DROP_ID 11
 #define MENU_ADVENTURE 12
 
+/* Эффекты (вариант) */
+#define EFFECT_DURATION_STEPS 10
+#define EFFECT_CHANCE_PERCENT 5
+
 /* Игрок */
 #define BASE_MAX_HP 100
 #define BASE_MAX_STAMINA 50
@@ -227,6 +231,32 @@ static const char *buff_name(StatusEffect type)
     }
 }
 
+static int buff_try_random(Buff *buff)
+{
+    if (!buff) return 0;
+    if (buff_is_active(buff)) return 0;
+    if (rand() % 100 >= EFFECT_CHANCE_PERCENT) return 0;
+
+    int roll = rand() % 3;
+    switch (roll)
+    {
+    case 0:
+        buff->type = STATUS_STRAIN;
+        break;
+    case 1:
+        buff->type = STATUS_POISON;
+        break;
+    default:
+        buff->type = STATUS_ENERGIZED;
+        break;
+    }
+    buff->remaining_steps = EFFECT_DURATION_STEPS;
+
+    printf("\n*** Вы получили состояние: %s (на %d шагов) ***\n",
+        buff_name(buff->type), buff->remaining_steps);
+    return 1;
+}
+
 static void buff_print(const Buff *buff)
 {
     if (!buff_is_active(buff))
@@ -236,6 +266,17 @@ static void buff_print(const Buff *buff)
     }
     printf("Состояние: %s (осталось шагов: %d)\n",
         buff_name(buff->type), buff->remaining_steps);
+}
+
+static void buff_tick(Buff *buff)
+{
+    if (!buff_is_active(buff)) return;
+    buff->remaining_steps--;
+    if (buff->remaining_steps <= 0)
+    {
+        printf("Состояние \"%s\" закончилось.\n", buff_name(buff->type));
+        buff_clear(buff);
+    }
 }
 
 /* Структура игрока и операции над ней */
@@ -1042,6 +1083,9 @@ static int run_adventure(Player *player, int *day, int *hour)
             map_destroy(map);
             return 0;
         }
+
+        buff_tick(&player->buff);
+        buff_try_random(&player->buff);
 
         if (move_result == 2)
         {
