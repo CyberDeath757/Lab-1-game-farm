@@ -42,11 +42,29 @@
 #define MENU_DIARY 9
 #define MENU_ENCYCLOPEDIA 10
 #define MENU_DROP_ID 11
+#define MENU_ADVENTURE 12
 
 /* Игрок */
 #define BASE_MAX_HP 100
 #define BASE_MAX_STAMINA 50
 #define START_GOLD 50
+
+/* Карта */
+#define MAP_MIN_SIZE 7
+#define MAP_MAX_SIZE 15
+#define GOLD_BASE_MULT 10
+#define FLOOR_STAMINA_COST 5
+#define STEP_STAMINA_COST 1
+#define MAP_TREE_CHANCE 15
+#define MAP_ROCK_CHANCE 10
+
+/* Символы клеток карты */
+#define WALL_CHAR '#'
+#define FLOOR_CHAR '.'
+#define HERO_CHAR '@'
+#define STAIRS_CHAR 'U'
+#define TREE_CHAR 'T'
+#define ROCK_CHAR 'R'
 
 /* Общие данные */
 
@@ -263,6 +281,186 @@ static int player_spend_stamina(Player *player, int amount)
     return 1;
 }
 
+/* Карта: структура и управление памятью */
+
+typedef struct Map {
+    char **grid;
+    int width;
+    int height;
+    int hero_x;
+    int hero_y;
+    int stairs_x;
+    int stairs_y;
+    int floor_number;
+} Map;
+
+static int map_alloc(Map *map, int height, int width)
+{
+    map->grid = (char **)malloc(height * sizeof(char *));
+    if (!map->grid) return 0;
+
+    for (int y = 0; y < height; y++)
+    {
+        map->grid[y] = (char *)malloc(width * sizeof(char));
+        if (!map->grid[y])
+        {
+            for (int i = 0; i < y; i++) free(map->grid[i]);
+            free(map->grid);
+            map->grid = NULL;
+            return 0;
+        }
+    }
+    map->height = height;
+    map->width = width;
+    return 1;
+}
+
+static char map_random_cell(void)
+{
+    int roll = rand() % 100;
+    if (roll < MAP_TREE_CHANCE)
+    {
+        return TREE_CHAR;
+    }
+    if (roll < MAP_TREE_CHANCE + MAP_ROCK_CHANCE)
+    {
+        return ROCK_CHAR;
+    }
+    return FLOOR_CHAR;
+}
+
+static void map_place_stairs(Map *map)
+{
+    int placed = 0;
+    for (int attempt = 0; attempt < 2000 && !placed; attempt++)
+    {
+        int x = 1 + rand() % (map->width - 2);
+        int y = 1 + rand() % (map->height - 2);
+        if (map->grid[y][x] == FLOOR_CHAR &&
+            !(x == map->hero_x && y == map->hero_y))
+        {
+            map->stairs_x = x;
+            map->stairs_y = y;
+            map->grid[y][x] = STAIRS_CHAR;
+            placed = 1;
+        }
+    }
+    if (!placed)
+    {
+        for (int y = 1; y < map->height - 1 && !placed; y++)
+        {
+            for (int x = 1; x < map->width - 1 && !placed; x++)
+            {
+                if (map->grid[y][x] == FLOOR_CHAR &&
+                    !(x == map->hero_x && y == map->hero_y))
+                {
+                    map->stairs_x = x;
+                    map->stairs_y = y;
+                    map->grid[y][x] = STAIRS_CHAR;
+                    placed = 1;
+                }
+            }
+        }
+    }
+}
+
+static Map *map_create(int floor_number)
+{
+    Map *map = (Map *)malloc(sizeof(Map));
+    if (!map)
+    {
+        printf("Ошибка: не удалось выделить память под карту.\n");
+        return NULL;
+    }
+    memset(map, 0, sizeof(*map));
+
+    int h = MAP_MIN_SIZE + rand() % (MAP_MAX_SIZE - MAP_MIN_SIZE + 1);
+    int w = MAP_MIN_SIZE + rand() % (MAP_MAX_SIZE - MAP_MIN_SIZE + 1);
+
+    if (!map_alloc(map, h, w))
+    {
+        free(map);
+        printf("Ошибка: не удалось выделить память под сетку карты.\n");
+        return NULL;
+    }
+
+    for (int y = 0; y < h; y++)
+    {
+        for (int x = 0; x < w; x++)
+        {
+            if (y == 0 || y == h - 1 || x == 0 || x == w - 1)
+            map->grid[y][x] = WALL_CHAR;
+            else
+            map->grid[y][x] = map_random_cell();
+        }
+    }
+
+    map->hero_x = 1 + rand() % (w - 2);
+    map->hero_y = 1 + rand() % (h - 2);
+    map->grid[map->hero_y][map->hero_x] = HERO_CHAR;
+
+    map_place_stairs(map);
+
+    map->floor_number = floor_number;
+    printf("Память карты выделена (адрес: %p, этаж %d)\n",
+        (void *)map, floor_number);
+    return map;
+}
+
+static void map_destroy(Map *map)
+{
+    if (!map) return;
+    if (map->grid)
+    {
+        for (int y = 0; y < map->height; y++) free(map->grid[y]);
+        free(map->grid);
+    }
+    printf("Память структуры по адресу %p освобождена\n", (void *)map);
+    free(map);
+}
+
+static int map_is_walkable(const Map *map, int x, int y)
+{
+    if (!map || x < 0 || x >= map->width || y < 0 || y >= map->height)
+    return 0;
+    char c = map->grid[y][x];
+    return c != WALL_CHAR && c != TREE_CHAR && c != ROCK_CHAR;
+}
+
+static int map_hero_on_exit(const Map *map)
+{
+    return map && map->hero_x == map->stairs_x && map->hero_y == map->stairs_y;
+}
+
+/* Возвращает: 0 — стена, 1 — шаг, 2 — переход на этаж */
+static int map_try_move(Map *map, int dx, int dy)
+{
+    if (!map) return 0;
+
+    int nx = map->hero_x + dx;
+    int ny = map->hero_y + dy;
+
+    if (!map_is_walkable(map, nx, ny))
+    {
+        printf("Туда нельзя — стена или препятствие.\n");
+        return 0;
+    }
+
+    if (map->grid[map->hero_y][map->hero_x] == HERO_CHAR)
+    map->grid[map->hero_y][map->hero_x] = FLOOR_CHAR;
+
+    map->hero_x = nx;
+    map->hero_y = ny;
+
+    if (map->grid[ny][nx] == STAIRS_CHAR)
+    {
+        map->grid[ny][nx] = HERO_CHAR;
+        return 2;
+    }
+    map->grid[ny][nx] = HERO_CHAR;
+    return 1;
+}
+
 /* Время и режим дня */
 
 static void advance_time(int *day, int *hour, int hours)
@@ -334,7 +532,7 @@ static void menu_create(Player **player)
 static void menu_time(int *day, int *hour, Player *player)
 {
     int choice;
-    printf("\n===== Время =====\n");
+    printf("\n===== ВРЕМЯ =====\n");
     printf("1 - Посмотреть на часы\n");
     printf("2 - Пропустить время\n");
     printf("3 - Отдохнуть (лечь спать)\n");
@@ -391,7 +589,7 @@ static void menu_time(int *day, int *hour, Player *player)
 static void menu_inventory(const Player *player)
 {
     if (!player_exists(player)) return;
-    printf("\n===== Инвентарь =====\n");
+    printf("\n===== ИНВЕНТАРЬ =====\n");
     for (int i = 0; i < INVENTORY_SIZE; i++)
     {
         printf("Слот %d: ID %d (%s)\n",
@@ -644,7 +842,7 @@ static void process_encyclopedia(const char *search_word)
     int line_number = 0;
     int found_count = 0;
 
-    printf("\n===== Результаты поиска =====\n");
+    printf("\n===== РЕЗУЛЬТАТЫ ПОИСКА =====\n");
     while (fgets(line, sizeof(line), in) != NULL)
     {
         line_number++;
@@ -688,6 +886,164 @@ static void menu_encyclopedia(void)
     process_encyclopedia(search_word);
 }
 
+/* Поход по карте */
+
+static void map_render(const Map *map, const Player *player, int day, int hour)
+{
+    if (!map) return;
+
+    printf("\n===== ЭТАЖ %d =====\n", map->floor_number);
+    printf("HP: %d/%d | Выносливость: %d/%d | Золото: %d | Этаж: %d | Время: День %d, %02d:00\n",
+        player->hp, player->max_hp,
+        player->stamina, player->max_stamina,
+        player->gold, map->floor_number, day, hour);
+    printf("W/A/S/D — шаг, Q — выход (только на U)\n\n");
+
+    for (int y = 0; y < map->height; y++)
+    {
+        for (int x = 0; x < map->width; x++)
+        putchar(map->grid[y][x]);
+        putchar('\n');
+    }
+    putchar('\n');
+}
+
+static int ask_direction(int *dx, int *dy)
+{
+    char input[MAX_INPUT_LEN];
+    printf("Направление (W/A/S/D, Q — выход): ");
+    if (!read_text(input, sizeof(input))) return -1;
+
+    char c = 0;
+    for (int i = 0; input[i] != '\0'; i++)
+    {
+        if (input[i] != ' ' && input[i] != '\t')
+        {
+            c = (char)tolower((unsigned char)input[i]);
+            break;
+        }
+    }
+
+    *dx = 0;
+    *dy = 0;
+
+    switch (c)
+    {
+    case 'w': *dy = -1; return 1;
+    case 's': *dy = 1; return 1;
+    case 'a': *dx = -1; return 1;
+    case 'd': *dx = 1; return 1;
+    case 'q': return 0;
+    default:
+        printf("Неизвестное направление. Используйте W/A/S/D или Q.\n");
+        return -1;
+    }
+}
+
+/* Возвращает: 1 — штатный выход, 0 — эвакуация */
+static int run_adventure(Player *player, int *day, int *hour)
+{
+    int floor_number = 1;
+    Map *map = map_create(floor_number);
+    if (!map) return 0;
+
+    while (1)
+    {
+        map_render(map, player, *day, *hour);
+
+        int dx, dy;
+        int dir = ask_direction(&dx, &dy);
+
+        if (dir == 0)
+        {
+            if (map_hero_on_exit(map))
+            {
+                printf("Вы вышли из приключения штатно, золото при вас.\n");
+                map_destroy(map);
+                return 1;
+            }
+            printf("Выход возможен только на лестнице U.\n");
+            continue;
+        }
+        if (dir < 0) continue;
+
+        int move_result = map_try_move(map, dx, dy);
+        if (move_result == 0) continue;
+
+        if (!player_spend_stamina(player, STEP_STAMINA_COST))
+        {
+            printf("Выносливость на нуле — вы падаете без сил!\n");
+            player_take_gold_percent(player, 50);
+            map_destroy(map);
+            return 0;
+        }
+
+        if (player->hp <= 0)
+        {
+            printf("Вы потеряли сознание! Спасатели доставили вас домой.\n");
+            player_take_gold_percent(player, 50);
+            map_destroy(map);
+            return 0;
+        }
+
+        if (move_result == 2)
+        {
+            if (!player_spend_stamina(player, FLOOR_STAMINA_COST))
+            {
+                printf("Не хватило сил на переход этажа — вы падаете!\n");
+                player_take_gold_percent(player, 50);
+                map_destroy(map);
+                return 0;
+            }
+
+            advance_time(day, hour, 1);
+            int reward = GOLD_BASE_MULT * floor_number;
+            player_add_gold(player, reward);
+            printf("Этаж пройден! Награда: %d золота, время +1 ч.\n", reward);
+
+            if (*hour == NIGHT_HOUR)
+            {
+                printf("Наступило 02:00 — вы засыпаете прямо на карте!\n");
+                player_take_gold_percent(player, 50);
+                map_destroy(map);
+                return 0;
+            }
+
+            floor_number++;
+            map_destroy(map);
+            map = map_create(floor_number);
+            if (!map) return 0;
+        }
+    }
+}
+
+static void menu_adventure(Player *player, int *day, int *hour)
+{
+    if (!player_exists(player)) return;
+
+    if (player->stamina <= 0)
+    {
+        printf("Выносливость на нуле — отправляться в поход нельзя. Отдохните.\n");
+        return;
+    }
+    if (*hour == NIGHT_HOUR)
+    {
+        printf("Сейчас 02:00 ночи — фермер должен спать.\n");
+        return;
+    }
+
+    printf("\nВы отправляетесь в приключение...\n");
+    int result = run_adventure(player, day, hour);
+    if (result == 1)
+    {
+        printf("Вы вернулись на ферму.\n");
+    }
+    else
+    {
+        printf("Вы очнулись дома. Приключение окончено.\n");
+    }
+}
+
 /* main */
 
 static void print_main_menu(void)
@@ -705,6 +1061,7 @@ static void print_main_menu(void)
     printf("9  - Записать состояние в дневник\n");
     printf("10 - Расшифровать старые записи (Энциклопедия)\n");
     printf("11 - Выбросить предмет по ID\n");
+    printf("12 - Отправиться в приключение\n");
 }
 
 int main(void)
@@ -774,6 +1131,10 @@ int main(void)
         case MENU_DROP_ID:
             menu_drop_id(player);
             break;
+        case MENU_ADVENTURE:
+            menu_adventure(player, &current_day, &current_hour);
+            break;
+
         default:
             printf("Ошибка: такого пункта меню нет.\n");
         }
