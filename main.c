@@ -185,6 +185,59 @@ static void load_items(void)
     printf("Предупреждение: каталог пуст или неверный формат.\n");
 }
 
+/* ВАРИАНТ 3: "Система состояний и травм" */
+
+typedef enum {
+    STATUS_HEALTHY = 0,
+    STATUS_STRAIN = 1,
+    STATUS_POISON = 2,
+    STATUS_ENERGIZED = 3
+} StatusEffect;
+
+typedef struct {
+    StatusEffect type;
+    int remaining_steps;
+} Buff;
+
+static void buff_clear(Buff *buff)
+{
+    if (!buff) return;
+    buff->type = STATUS_HEALTHY;
+    buff->remaining_steps = 0;
+}
+
+static int buff_is_active(const Buff *buff)
+{
+    return buff && buff->type != STATUS_HEALTHY && buff->remaining_steps > 0;
+}
+
+static const char *buff_name(StatusEffect type)
+{
+    switch (type)
+    {
+    case STATUS_STRAIN:
+        return "Растяжение";
+    case STATUS_POISON:
+        return "Отравление";
+    case STATUS_ENERGIZED:
+        return "Бодрость";
+    case STATUS_HEALTHY:
+    default:
+        return "Здоров";
+    }
+}
+
+static void buff_print(const Buff *buff)
+{
+    if (!buff_is_active(buff))
+    {
+        printf("Состояние: %s\n", buff_name(STATUS_HEALTHY));
+        return;
+    }
+    printf("Состояние: %s (осталось шагов: %d)\n",
+        buff_name(buff->type), buff->remaining_steps);
+}
+
 /* Структура игрока и операции над ней */
 
 typedef struct Player {
@@ -196,6 +249,7 @@ typedef struct Player {
     int gold;
     int x, y;
     int inventory[INVENTORY_SIZE];
+    Buff buff;
 } Player;
 
 static void player_destroy(Player *player)
@@ -225,6 +279,7 @@ static Player *player_create(void)
     }
 
     memset(p, 0, sizeof(*p));
+    buff_clear(&p->buff);
 
     printf("Введите имя фермера: ");
     if (!read_text(p->name, sizeof(p->name)) || p->name[0] == '\0')
@@ -498,6 +553,7 @@ static void player_print_card(const Player *player, int day, int hour)
     printf("Координаты: (%d, %d)\n", player->x, player->y);
     printf("Игровое время: День %d, %02d:00\n", day, hour);
     printf("Реальное время: %s\n", timebuf);
+    buff_print(&player->buff);
     printf("Инвентарь:\n");
     for (int i = 0; i < INVENTORY_SIZE; i++)
     {
@@ -897,6 +953,7 @@ static void map_render(const Map *map, const Player *player, int day, int hour)
         player->hp, player->max_hp,
         player->stamina, player->max_stamina,
         player->gold, map->floor_number, day, hour);
+    buff_print(&player->buff);
     printf("W/A/S/D — шаг, Q — выход (только на U)\n\n");
 
     for (int y = 0; y < map->height; y++)
