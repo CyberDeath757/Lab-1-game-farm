@@ -231,6 +231,17 @@ static const char *buff_name(StatusEffect type)
     }
 }
 
+static void buff_print(const Buff *buff)
+{
+    if (!buff_is_active(buff))
+    {
+        printf("Состояние: %s\n", buff_name(STATUS_HEALTHY));
+        return;
+    }
+    printf("Состояние: %s (осталось шагов: %d)\n",
+        buff_name(buff->type), buff->remaining_steps);
+}
+
 static int buff_try_random(Buff *buff)
 {
     if (!buff) return 0;
@@ -257,15 +268,19 @@ static int buff_try_random(Buff *buff)
     return 1;
 }
 
-static void buff_print(const Buff *buff)
+static int buff_doubles_stamina_cost(const Buff *buff)
 {
-    if (!buff_is_active(buff))
-    {
-        printf("Состояние: %s\n", buff_name(STATUS_HEALTHY));
-        return;
-    }
-    printf("Состояние: %s (осталось шагов: %d)\n",
-        buff_name(buff->type), buff->remaining_steps);
+    return buff_is_active(buff) && buff->type == STATUS_STRAIN;
+}
+
+static int buff_makes_step_free(const Buff *buff)
+{
+    return buff_is_active(buff) && buff->type == STATUS_ENERGIZED;
+}
+
+static int buff_damage_per_step(const Buff *buff)
+{
+    return (buff_is_active(buff) && buff->type == STATUS_POISON) ? 2 : 0;
 }
 
 static void buff_tick(Buff *buff)
@@ -1068,13 +1083,27 @@ static int run_adventure(Player *player, int *day, int *hour)
         int move_result = map_try_move(map, dx, dy);
         if (move_result == 0) continue;
 
-        if (!player_spend_stamina(player, STEP_STAMINA_COST))
+        int stamina_cost = STEP_STAMINA_COST;
+        if (buff_doubles_stamina_cost(&player->buff)) stamina_cost *= 2;
+        if (buff_makes_step_free(&player->buff)) stamina_cost = 0;
+
+        if (stamina_cost > 0 && !player_spend_stamina(player, stamina_cost))
         {
             printf("Выносливость на нуле — вы падаете без сил!\n");
             player_take_gold_percent(player, 50);
             map_destroy(map);
             return 0;
         }
+
+        int dmg = buff_damage_per_step(&player->buff);
+        if (dmg > 0)
+        {
+            player_take_damage(player, dmg);
+            printf("Отравление: -%d HP\n", dmg);
+        }
+
+        buff_tick(&player->buff);
+        buff_try_random(&player->buff);
 
         if (player->hp <= 0)
         {
@@ -1084,12 +1113,12 @@ static int run_adventure(Player *player, int *day, int *hour)
             return 0;
         }
 
-        buff_tick(&player->buff);
-        buff_try_random(&player->buff);
-
         if (move_result == 2)
         {
-            if (!player_spend_stamina(player, FLOOR_STAMINA_COST))
+            int floor_cost = FLOOR_STAMINA_COST;
+            if (buff_makes_step_free(&player->buff)) floor_cost = 0;
+
+            if (floor_cost > 0 && !player_spend_stamina(player, floor_cost))
             {
                 printf("Не хватило сил на переход этажа — вы падаете!\n");
                 player_take_gold_percent(player, 50);
