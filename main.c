@@ -270,6 +270,21 @@ static int buff_try_random(Buff *buff)
     return 1;
 }
 
+static int buff_doubles_stamina_cost(const Buff *buff)
+{
+    return buff_is_active(buff) && buff->type == STATUS_STRAIN;
+}
+
+static int buff_makes_step_free(const Buff *buff)
+{
+    return buff_is_active(buff) && buff->type == STATUS_ENERGIZED;
+}
+
+static int buff_damage_per_step(const Buff *buff)
+{
+    return (buff_is_active(buff) && buff->type == STATUS_POISON) ? 2 : 0;
+}
+
 static void buff_tick(Buff *buff)
 {
     if (!buff_is_active(buff)) return;
@@ -280,7 +295,6 @@ static void buff_tick(Buff *buff)
         buff_clear(buff);
     }
 }
-
 
 /* Структура игрока и операции над ней */
 
@@ -363,6 +377,13 @@ static void player_take_gold_percent(Player *player, int percent)
     int taken = player->gold * percent / 100;
     player->gold -= taken;
     printf("Списано золота: %d (осталось %d)\n", taken, player->gold);
+}
+
+static void player_take_damage(Player *player, int dmg)
+{
+    if (!player || dmg <= 0) return;
+    player->hp -= dmg;
+    if (player->hp < 0) player->hp = 0;
 }
 
 static int player_spend_stamina(Player *player, int amount)
@@ -1184,6 +1205,8 @@ static int run_adventure(Player *player, int *day, int *hour)
         player->y = map->hero_y;
 
         int stamina_cost = STEP_STAMINA_COST;
+        if (buff_doubles_stamina_cost(&player->buff)) stamina_cost *= 2;
+        if (buff_makes_step_free(&player->buff)) stamina_cost = 0;
 
         if (stamina_cost > 0 && !player_spend_stamina(player, stamina_cost))
         {
@@ -1191,6 +1214,13 @@ static int run_adventure(Player *player, int *day, int *hour)
             player_take_gold_percent(player, 50);
             map_destroy(map);
             return 0;
+        }
+
+        int dmg = buff_damage_per_step(&player->buff);
+        if (dmg > 0)
+        {
+            player_take_damage(player, dmg);
+            printf("Отравление: -%d HP\n", dmg);
         }
 
         buff_tick(&player->buff);
@@ -1207,6 +1237,7 @@ static int run_adventure(Player *player, int *day, int *hour)
         if (move_result == 2)
         {
             int floor_cost = FLOOR_STAMINA_COST;
+            if (buff_makes_step_free(&player->buff)) floor_cost = 0;
 
             if (floor_cost > 0 && !player_spend_stamina(player, floor_cost))
             {
@@ -1216,18 +1247,9 @@ static int run_adventure(Player *player, int *day, int *hour)
                 return 0;
             }
 
-            advance_time(day, hour, 1);
             int reward = GOLD_BASE_MULT * floor_number;
             player_add_gold(player, reward);
-            printf("Этаж пройден! Награда: %d золота, время +1 ч.\n", reward);
-
-            if (*hour == NIGHT_HOUR)
-            {
-                printf("Наступило 02:00 — вы засыпаете прямо на карте!\n");
-                player_take_gold_percent(player, 50);
-                map_destroy(map);
-                return 0;
-            }
+            printf("Этаж пройден! Награда: %d золота.\n", reward);
 
             floor_number++;
             map_destroy(map);
