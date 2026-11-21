@@ -10,7 +10,7 @@
 #include <wchar.h>
 #endif
 
-/* Константы */
+/* КОНСТАНТЫ: */
 
 /* Общие лимиты */
 #define INVENTORY_SIZE 10
@@ -61,6 +61,7 @@
 #define STEP_STAMINA_COST 1
 #define MAP_TREE_CHANCE 15
 #define MAP_ROCK_CHANCE 10
+#define MAP_RUNE_CHANCE 8
 
 /* Символы клеток карты */
 #define WALL_CHAR '#'
@@ -69,6 +70,7 @@
 #define STAIRS_CHAR 'U'
 #define TREE_CHAR 'T'
 #define ROCK_CHAR 'R'
+#define RUNE_CHAR '^'
 
 /* Общие данные */
 
@@ -189,111 +191,6 @@ static void load_items(void)
     printf("Предупреждение: каталог пуст или неверный формат.\n");
 }
 
-/* ВАРИАНТ 3: "Система состояний и травм" */
-
-typedef enum {
-    STATUS_HEALTHY = 0,
-    STATUS_STRAIN = 1,
-    STATUS_POISON = 2,
-    STATUS_ENERGIZED = 3
-} StatusEffect;
-
-typedef struct {
-    StatusEffect type;
-    int remaining_steps;
-} Buff;
-
-static void buff_clear(Buff *buff)
-{
-    if (!buff) return;
-    buff->type = STATUS_HEALTHY;
-    buff->remaining_steps = 0;
-}
-
-static int buff_is_active(const Buff *buff)
-{
-    return buff && buff->type != STATUS_HEALTHY && buff->remaining_steps > 0;
-}
-
-static const char *buff_name(StatusEffect type)
-{
-    switch (type)
-    {
-    case STATUS_STRAIN:
-        return "Растяжение";
-    case STATUS_POISON:
-        return "Отравление";
-    case STATUS_ENERGIZED:
-        return "Бодрость";
-    case STATUS_HEALTHY:
-    default:
-        return "Здоров";
-    }
-}
-
-static void buff_print(const Buff *buff)
-{
-    if (!buff_is_active(buff))
-    {
-        printf("Состояние: %s\n", buff_name(STATUS_HEALTHY));
-        return;
-    }
-    printf("Состояние: %s (осталось шагов: %d)\n",
-        buff_name(buff->type), buff->remaining_steps);
-}
-
-static int buff_try_random(Buff *buff)
-{
-    if (!buff) return 0;
-    if (buff_is_active(buff)) return 0;
-    if (rand() % 100 >= EFFECT_CHANCE_PERCENT) return 0;
-
-    int roll = rand() % 3;
-    switch (roll)
-    {
-    case 0:
-        buff->type = STATUS_STRAIN;
-        break;
-    case 1:
-        buff->type = STATUS_POISON;
-        break;
-    default:
-        buff->type = STATUS_ENERGIZED;
-        break;
-    }
-    buff->remaining_steps = EFFECT_DURATION_STEPS;
-
-    printf("\n*** Вы получили состояние: %s (на %d шагов) ***\n",
-        buff_name(buff->type), buff->remaining_steps);
-    return 1;
-}
-
-static int buff_doubles_stamina_cost(const Buff *buff)
-{
-    return buff_is_active(buff) && buff->type == STATUS_STRAIN;
-}
-
-static int buff_makes_step_free(const Buff *buff)
-{
-    return buff_is_active(buff) && buff->type == STATUS_ENERGIZED;
-}
-
-static int buff_damage_per_step(const Buff *buff)
-{
-    return (buff_is_active(buff) && buff->type == STATUS_POISON) ? 2 : 0;
-}
-
-static void buff_tick(Buff *buff)
-{
-    if (!buff_is_active(buff)) return;
-    buff->remaining_steps--;
-    if (buff->remaining_steps <= 0)
-    {
-        printf("Состояние \"%s\" закончилось.\n", buff_name(buff->type));
-        buff_clear(buff);
-    }
-}
-
 /* Структура игрока и операции над ней */
 
 typedef struct Player {
@@ -305,7 +202,6 @@ typedef struct Player {
     int gold;
     int x, y;
     int inventory[INVENTORY_SIZE];
-    Buff buff;
 } Player;
 
 static void player_destroy(Player *player)
@@ -335,7 +231,6 @@ static Player *player_create(void)
     }
 
     memset(p, 0, sizeof(*p));
-    buff_clear(&p->buff);
 
     printf("Введите имя фермера: ");
     if (!read_text(p->name, sizeof(p->name)) || p->name[0] == '\0')
@@ -377,13 +272,6 @@ static void player_take_gold_percent(Player *player, int percent)
     printf("Списано золота: %d (осталось %d)\n", taken, player->gold);
 }
 
-static void player_take_damage(Player *player, int dmg)
-{
-    if (!player || dmg <= 0) return;
-    player->hp -= dmg;
-    if (player->hp < 0) player->hp = 0;
-}
-
 static int player_spend_stamina(Player *player, int amount)
 {
     if (!player || amount <= 0) return 1;
@@ -396,6 +284,7 @@ static int player_spend_stamina(Player *player, int amount)
 
 typedef struct Map {
     char **grid;
+    int **runes;
     int width;
     int height;
     int hero_x;
@@ -407,22 +296,49 @@ typedef struct Map {
 
 static int map_alloc(Map *map, int height, int width)
 {
+    map->height = height;
+    map->width = width;
+
     map->grid = (char **)malloc(height * sizeof(char *));
-    if (!map->grid) return 0;
+    map->runes = (int **)malloc(height * sizeof(int *));
+    if (!map->grid || !map->runes)
+    {
+        free(map->grid);
+        free(map->runes);
+        map->grid = NULL;
+        map->runes = NULL;
+        return 0;
+    }
+
+    for (int y = 0; y < height; y++)
+    {
+        map->grid[y] = NULL;
+        map->runes[y] = NULL;
+    }
 
     for (int y = 0; y < height; y++)
     {
         map->grid[y] = (char *)malloc(width * sizeof(char));
-        if (!map->grid[y])
+        map->runes[y] = (int *)calloc(width, sizeof(int));
+        if (!map->grid[y] || !map->runes[y])
         {
-            for (int i = 0; i < y; i++) free(map->grid[i]);
+            for (int i = 0; i <= y; i++)
+            {
+                free(map->grid[i]);
+                free(map->runes[i]);
+            }
+            for (int i = y + 1; i < height; i++)
+            {
+                map->grid[i] = NULL;
+                map->runes[i] = NULL;
+            }
             free(map->grid);
+            free(map->runes);
             map->grid = NULL;
+            map->runes = NULL;
             return 0;
         }
     }
-    map->height = height;
-    map->width = width;
     return 1;
 }
 
@@ -475,6 +391,23 @@ static void map_place_stairs(Map *map)
     }
 }
 
+static void map_place_runes(Map *map)
+{
+    for (int y = 1; y < map->height - 1; y++)
+    {
+        for (int x = 1; x < map->width - 1; x++)
+        {
+            if (map->grid[y][x] == FLOOR_CHAR &&
+                !(x == map->hero_x && y == map->hero_y) &&
+                !(x == map->stairs_x && y == map->stairs_y) &&
+                rand() % 100 < MAP_RUNE_CHANCE)
+            {
+                map->runes[y][x] = 1;
+            }
+        }
+    }
+}
+
 static Map *map_create(int floor_number)
 {
     Map *map = (Map *)malloc(sizeof(Map));
@@ -511,6 +444,7 @@ static Map *map_create(int floor_number)
     map->grid[map->hero_y][map->hero_x] = HERO_CHAR;
 
     map_place_stairs(map);
+    map_place_runes(map);
 
     map->floor_number = floor_number;
     printf("Память карты выделена (адрес: %p, этаж %d)\n",
@@ -521,11 +455,18 @@ static Map *map_create(int floor_number)
 static void map_destroy(Map *map)
 {
     if (!map) return;
+
     if (map->grid)
     {
         for (int y = 0; y < map->height; y++) free(map->grid[y]);
         free(map->grid);
     }
+    if (map->runes)
+    {
+        for (int y = 0; y < map->height; y++) free(map->runes[y]);
+        free(map->runes);
+    }
+
     printf("Память структуры по адресу %p освобождена\n", (void *)map);
     free(map);
 }
@@ -543,7 +484,49 @@ static int map_hero_on_exit(const Map *map)
     return map && map->hero_x == map->stairs_x && map->hero_y == map->stairs_y;
 }
 
-/* Возвращает: 0 — стена, 1 — шаг, 2 — переход на этаж */
+/* Выбирает случайную свободную клетку без руны для телепортации. */
+static int map_teleport_to_empty_cell(Map *map, int excluded_x, int excluded_y)
+{
+    int available = 0;
+
+    for (int y = 1; y < map->height - 1; y++)
+    {
+        for (int x = 1; x < map->width - 1; x++)
+        {
+            if (map->grid[y][x] == FLOOR_CHAR && !map->runes[y][x] &&
+                !(x == excluded_x && y == excluded_y))
+            {
+                available++;
+            }
+        }
+    }
+
+    if (available == 0) return 0;
+
+    int selected = rand() % available;
+    for (int y = 1; y < map->height - 1; y++)
+    {
+        for (int x = 1; x < map->width - 1; x++)
+        {
+            if (map->grid[y][x] == FLOOR_CHAR && !map->runes[y][x] &&
+                !(x == excluded_x && y == excluded_y))
+            {
+                if (selected == 0)
+                {
+                    map->hero_x = x;
+                    map->hero_y = y;
+                    map->grid[y][x] = HERO_CHAR;
+                    printf("Руна телепортировала вас в другое место этажа!\n");
+                    return 1;
+                }
+                selected--;
+            }
+        }
+    }
+    return 0;
+}
+
+/* Возвращает: 0 — стена, 1 — шаг/телепортация, 2 — переход на этаж */
 static int map_try_move(Map *map, int dx, int dy)
 {
     if (!map) return 0;
@@ -557,8 +540,10 @@ static int map_try_move(Map *map, int dx, int dy)
         return 0;
     }
 
+    int stepped_on_rune = map->runes[ny][nx];
+
     if (map->grid[map->hero_y][map->hero_x] == HERO_CHAR)
-    map->grid[map->hero_y][map->hero_x] = FLOOR_CHAR;
+        map->grid[map->hero_y][map->hero_x] = FLOOR_CHAR;
 
     map->hero_x = nx;
     map->hero_y = ny;
@@ -568,6 +553,19 @@ static int map_try_move(Map *map, int dx, int dy)
         map->grid[ny][nx] = HERO_CHAR;
         return 2;
     }
+
+    if (stepped_on_rune)
+    {
+        map->runes[ny][nx] = 0;
+        map->grid[ny][nx] = FLOOR_CHAR;
+        if (!map_teleport_to_empty_cell(map, nx, ny))
+        {
+            map->grid[ny][nx] = HERO_CHAR;
+            printf("Руна погасла, но свободного места для телепортации нет.\n");
+        }
+        return 1;
+    }
+
     map->grid[ny][nx] = HERO_CHAR;
     return 1;
 }
@@ -609,7 +607,6 @@ static void player_print_card(const Player *player, int day, int hour)
     printf("Координаты: (%d, %d)\n", player->x, player->y);
     printf("Игровое время: День %d, %02d:00\n", day, hour);
     printf("Реальное время: %s\n", timebuf);
-    buff_print(&player->buff);
     printf("Инвентарь:\n");
     for (int i = 0; i < INVENTORY_SIZE; i++)
     {
@@ -1009,13 +1006,17 @@ static void map_render(const Map *map, const Player *player, int day, int hour)
         player->hp, player->max_hp,
         player->stamina, player->max_stamina,
         player->gold, map->floor_number, day, hour);
-    buff_print(&player->buff);
-    printf("W/A/S/D — шаг, Q — выход (только на U)\n\n");
+    printf("W/A/S/D — шаг, Q — выход (только на U), ^ — руна-телепорт\n\n");
 
     for (int y = 0; y < map->height; y++)
     {
         for (int x = 0; x < map->width; x++)
-        putchar(map->grid[y][x]);
+        {
+            if (map->runes[y][x] && map->grid[y][x] != HERO_CHAR)
+                putchar(RUNE_CHAR);
+            else
+                putchar(map->grid[y][x]);
+        }
         putchar('\n');
     }
     putchar('\n');
@@ -1059,6 +1060,8 @@ static int run_adventure(Player *player, int *day, int *hour)
     int floor_number = 1;
     Map *map = map_create(floor_number);
     if (!map) return 0;
+    player->x = map->hero_x;
+    player->y = map->hero_y;
 
     while (1)
     {
@@ -1082,10 +1085,10 @@ static int run_adventure(Player *player, int *day, int *hour)
 
         int move_result = map_try_move(map, dx, dy);
         if (move_result == 0) continue;
+        player->x = map->hero_x;
+        player->y = map->hero_y;
 
         int stamina_cost = STEP_STAMINA_COST;
-        if (buff_doubles_stamina_cost(&player->buff)) stamina_cost *= 2;
-        if (buff_makes_step_free(&player->buff)) stamina_cost = 0;
 
         if (stamina_cost > 0 && !player_spend_stamina(player, stamina_cost))
         {
@@ -1094,16 +1097,6 @@ static int run_adventure(Player *player, int *day, int *hour)
             map_destroy(map);
             return 0;
         }
-
-        int dmg = buff_damage_per_step(&player->buff);
-        if (dmg > 0)
-        {
-            player_take_damage(player, dmg);
-            printf("Отравление: -%d HP\n", dmg);
-        }
-
-        buff_tick(&player->buff);
-        buff_try_random(&player->buff);
 
         if (player->hp <= 0)
         {
@@ -1116,7 +1109,6 @@ static int run_adventure(Player *player, int *day, int *hour)
         if (move_result == 2)
         {
             int floor_cost = FLOOR_STAMINA_COST;
-            if (buff_makes_step_free(&player->buff)) floor_cost = 0;
 
             if (floor_cost > 0 && !player_spend_stamina(player, floor_cost))
             {
@@ -1143,6 +1135,8 @@ static int run_adventure(Player *player, int *day, int *hour)
             map_destroy(map);
             map = map_create(floor_number);
             if (!map) return 0;
+            player->x = map->hero_x;
+            player->y = map->hero_y;
         }
     }
 }
