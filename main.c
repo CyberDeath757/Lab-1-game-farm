@@ -1247,9 +1247,18 @@ static int run_adventure(Player *player, int *day, int *hour)
                 return 0;
             }
 
+            advance_time(day, hour, 1);
             int reward = GOLD_BASE_MULT * floor_number;
             player_add_gold(player, reward);
-            printf("Этаж пройден! Награда: %d золота.\n", reward);
+            printf("Этаж пройден! Награда: %d золота, время +1 ч.\n", reward);
+
+            if (*hour == NIGHT_HOUR)
+            {
+                printf("Наступило 02:00 — вы засыпаете прямо на карте!\n");
+                player_take_gold_percent(player, 50);
+                map_destroy(map);
+                return 0;
+            }
 
             floor_number++;
             map_destroy(map);
